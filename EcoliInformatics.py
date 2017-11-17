@@ -1,60 +1,67 @@
 import numpy as np                  
 import matplotlib.pyplot as plt     # Plotting, if you want it
 import csv                          # Read CSVs
-from scipy.special import comb      # N choose K
 import scipy.optimize               # minimize
+import scipy.stats                  # binomial pmf
+import signal, os                   # signaling
 from Bio import SeqIO               # Biopython sequence I/O
 
-fname = 'ecoli-nt.fasta'
-numCodons = 64 # number of degenerate codons, change later(?)
-                # Clearly wrong, but might be interesting to look at
-numAA = 21      # include stop codon
+class TooLongException(Exception):
+    """Raise this when things take too long. Impatience is a virtue."""
 
-aaMap = {'F': 0, 'L': 1, 'I': 2, 'M': 3, 'V': 4, 'S': 5, 'P': 6, 'T': 7, 'A': 8, 'Y': 9, \
-            'STOP': 10, 'H': 11, 'Q': 12, 'N': 13, 'K': 14, 'D': 15, 'E': 16, 'C': 17, 'R': 18, \
-            'G': 19, 'W': 20}
+    def __init__(self):
+        pass
+
+def handler(signum, frame):
+    raise TooLongException
 
 def generateCodonMap():
-    """Generate a mapping of codons/amino acids onto integers."""
+    """Generate a mapping of codons onto amino acids."""
     codonMap = dict()
     f = open('codonfreqs.csv', 'rB')
     csvfile = csv.DictReader(f, delimiter=',')
     for i, item in enumerate(csvfile):
-        codonMap[str(item['Codon'])] = (i, item['Amino Acid'])
+        codonMap[str(item['Codon'])] = item['Amino Acid']
     return codonMap
 
 
 def getSequences():
     lst = []
-    for record in SeqIO.parse(fname, 'fasta'):
+    for record in SeqIO.parse('ecoli-nt.fasta', 'fasta'):
         lst.append(record.seq.transcribe())
     return lst
 
 
-def countsInGene(gene, maxLength, codonMap):
-    """Count the codons and amino acids in a gene based on their positions."""
-    n = np.zeros((numCodons, maxLength))
-    N = np.zeros((numAA, maxLength))
-    for i in range(0, len(gene)-2, 3):
-        cdn = str(gene[i:i+3])
-        n[codonMap[cdn][0]][i/3] += 1
-        N[aaMap[codonMap[cdn][1]]][i/3] += 1
-    return n,N
+def updateCountsInGene(gene, maxLength, codonMap, codonCounts, aaCounts):
+    """Update the counts for codons and amino acids in a gene based on their positions."""
 
+    for i in range(0, min(len(gene)-2, maxLength-2), 3):
+        cdn = str(gene[i:i+3])
+        codonCounts[cdn][i/3] += 1
+        aaCounts[codonMap[cdn]][i/3] += 1
+
+    return
 
 def counts(sequences, maxLength, codonMap):
     """Count the times a codon occurs in a transcript
     at all positions, and times an amino acid occurs."""
     
+    # Set up the dictionary that will keep track of the counts for 
+    # each codon
+    codonCounts = dict()
+    aaCounts = dict()
+    for cdn in codonMap:
+        codonCounts[cdn] = np.zeros(maxLength, dtype=float)
+    aaCounts = dict()
+    for aa in set(codonMap.values()):
+        aaCounts[aa] = np.zeros(maxLength, dtype=float)
+
     # Keep track of which codons/amino acid (first axis) occur 
     # at which locations (second axis)
-    n = np.zeros((numCodons, maxLength)) 
-    N = np.zeros((numAA, maxLength))
     for seq in sequences:
-        n_add, N_add = countsInGene(seq, maxLength, codonMap) 
-        n += n_add
-        N += N_add 
-    return n,N
+        updateCountsInGene(seq, maxLength, codonMap, codonCounts, aaCounts) 
+
+    return codonCounts, aaCounts 
 
 
 def exponentialModel(thetas, k):
@@ -71,12 +78,13 @@ def MLE():
     # Get metadata about the sequences
     codonMap = generateCodonMap()
     sequences = getSequences() 
-    lengths = map(lambda x: len(x), sequences)
-    maxLength = max(lengths)
+    lengths = map(lambda x: len(x)/3, sequences)
+#    maxLength = max(lengths)
+    maxLength = 700*3
     numSequences = len(sequences)
 
     # Find out the codon distribution across the genes
-    n,N = counts(sequences, maxLength, codonMap)
+    codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
 
     # Now we have the numbers. It's time to estimate the parameters
     # for each distribution separately. We'll define a new function
@@ -84,30 +92,42 @@ def MLE():
     # varying parameters are the thetas (in the main text, these are 
     # a, tau, and c). Then, we can run an optimization algorithm on 
     # the log-likelihood function.
-    for codon, v in codonMap.items():
-        i, aa = v
-        n_i = n[i] 
-        N_j = N[aaMap[aa]]
+    print 'Estimating...' 
+    for codon, aa in codonMap.items():
+        n_i = codonCounts[codon] 
+        N_j = aaCounts[aa] 
         def L(thetas):
             total = 0.0
             for k in range(maxLength):
-                binomialCoeff = comb(N_j[k], n_i[k])
-                modelVal = exponentialModel(thetas, k)
-                factor1 = np.power(modelVal, n_i[k])
-                factor2 = np.power(1-modelVal, N_j[k]-n_i[k]) 
-                result = binomialCoeff * factor1 * factor2
-                total += np.log(result)
-            return -total
+                total += scipy.stats.binom.logpmf(n_i[k], N_j[k], exponentialModel(thetas, k))
+            return -1 * total
 
         # Run 5 times to help avoid getting stuck at local maxima 
         for run in range(5): 
-            thetas = [np.random.random()*5, \
-                      np.random.random()*5, \
-                      np.random.random()*5]
+            thetas = [np.random.uniform(-1.0, 1.0), \
+                      np.random.uniform(0.0, 1.0), \
+                      np.random.uniform(0.0, 1.0)]
+            signal.signal(signal.SIGALRM, handler)
+#            signal.alarm(10)
+            try:
+                result = scipy.optimize.fmin(L, thetas)
+                print "Results for codon " + str(codon)
+                print result 
+                
+                # Plot the model against the actual data
+                data_xs = np.array(range(maxLength), dtype=float)
+                data_ys = np.zeros(data_xs.size, dtype=float)
+                for k in range(maxLength):
+                    data_ys[k] += n_i[k]
+                data_ys /= N_j
+                plt.plot(data_xs[1:], data_ys[1:], color='black')
+                model_ys = map(lambda x: exponentialModel(thetas, x), data_xs)
+                plt.plot(data_xs[1:], model_ys[1:], color='red')
+                plt.show()
 
-            result = scipy.optimize.minimize(L, thetas)
-            print "Results for codon " + str(codon)
-            print str(result['x']) 
+            except TooLongException:
+                print "aw jeez Rick it took too long"
+
 
 MLE()
 
