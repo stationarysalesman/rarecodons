@@ -71,6 +71,52 @@ def exponentialModel(thetas, k):
 
     return thetas[0] * np.exp(-k / thetas[1]) + thetas[2] 
 
+
+def codonMLE(codon, aa, n_i, N_j, maxLength, num):
+    """Estimate model parameters for a single codon distribution."""
+   
+    def L(thetas):
+        total = 0.0
+        for k in range(maxLength):
+            total += scipy.stats.binom.logpmf(n_i[k], N_j[k], exponentialModel(thetas, k))
+        return -1 * total
+
+    # Run 5 times to help avoid getting stuck at local maxima 
+    print "Performing MLE for codon " + str(codon) + "(" + str(aa) + ")..."
+    thetas_lst = []
+    fname_lst = []
+    thetas = [np.random.uniform(0.0, 1.0), \
+              np.random.uniform(0.0, 1.0), \
+              np.random.uniform(0.0, 1.0)]
+    result = scipy.optimize.fmin(L, thetas)
+    print "Optimization complete. Result:"
+    print result 
+    xs = np.array(range(maxLength), dtype=float)
+    ys = np.array(map(lambda x: exponentialModel(result, x), xs))
+    plt.plot(xs[1:700], ys[1:700], color='red')
+    plt.ylabel('P({}|{})'.format(codon, aa))
+    plt.xlabel('Distance from start codon')
+    plt.ylim((0.0, 1.0)) 
+    plt.xlim((0.0, 700))
+    data_ys = [sum(n_i[i:i+8])/sum(N_j[i:i+8]) for i in range(0, ys.size-8, 8)] 
+    plt.plot(xs[:696:8], data_ys[:87], color='black')
+    fname = 'data/{}{}{}.png'.format(codon, aa, num)
+    plt.savefig(fname)
+    plt.clf()
+    return (thetas, fname) 
+
+
+def test():
+    codonMap = generateCodonMap()
+    sequences = getSequences() 
+    lengths = map(lambda x: len(x)/3, sequences)
+    maxLength = 700*3
+    numSequences = len(sequences)
+    codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
+    n_i = codonCounts['CCG']
+    N_j = aaCounts[codonMap['CCG']]
+    codonMLE('CCG', 'V', n_i,N_j,maxLength)
+ 
 def MLE():
     """Estimate the parameters of codon bias in E. coli based 
     on Krumpp et. al. exponential model."""
@@ -79,7 +125,6 @@ def MLE():
     codonMap = generateCodonMap()
     sequences = getSequences() 
     lengths = map(lambda x: len(x)/3, sequences)
-#    maxLength = max(lengths)
     maxLength = 700*3
     numSequences = len(sequences)
 
@@ -92,42 +137,16 @@ def MLE():
     # varying parameters are the thetas (in the main text, these are 
     # a, tau, and c). Then, we can run an optimization algorithm on 
     # the log-likelihood function.
-    print 'Estimating...' 
+    fieldnames = ['Codon', 'Amino Acid', 'Theta1', 'Theta2', 'Theta3', 'filename']
+    outfile = open('parameters.csv', 'wB')
+    csvWriter = csv.writer(outfile, delimiter=',')
+    csvWriter.writerow(fieldnames)
     for codon, aa in codonMap.items():
         n_i = codonCounts[codon] 
-        N_j = aaCounts[aa] 
-        def L(thetas):
-            total = 0.0
-            for k in range(maxLength):
-                total += scipy.stats.binom.logpmf(n_i[k], N_j[k], exponentialModel(thetas, k))
-            return -1 * total
-
-        # Run 5 times to help avoid getting stuck at local maxima 
-        for run in range(5): 
-            thetas = [np.random.uniform(-1.0, 1.0), \
-                      np.random.uniform(0.0, 1.0), \
-                      np.random.uniform(0.0, 1.0)]
-            signal.signal(signal.SIGALRM, handler)
-#            signal.alarm(10)
-            try:
-                result = scipy.optimize.fmin(L, thetas)
-                print "Results for codon " + str(codon)
-                print result 
-                
-                # Plot the model against the actual data
-                data_xs = np.array(range(maxLength), dtype=float)
-                data_ys = np.zeros(data_xs.size, dtype=float)
-                for k in range(maxLength):
-                    data_ys[k] += n_i[k]
-                data_ys /= N_j
-                plt.plot(data_xs[1:], data_ys[1:], color='black')
-                model_ys = map(lambda x: exponentialModel(thetas, x), data_xs)
-                plt.plot(data_xs[1:], model_ys[1:], color='red')
-                plt.show()
-
-            except TooLongException:
-                print "aw jeez Rick it took too long"
+        N_j = aaCounts[aa]
+        for num in range(5): 
+            thetas, fname = codonMLE(codon, aa, n_i, N_j, maxLength,num) 
+            csvWriter.writerow([codon, aa, thetas[0], thetas[1], thetas[2], fname])
 
 
-MLE()
-
+MLE() 
