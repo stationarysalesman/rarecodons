@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt     # Plotting, if you want it
 import csv                          # Read CSVs
 import scipy.optimize               # minimize
 import scipy.stats                  # binomial pmf
-import signal, os                   # signaling
+import signal, os                   # signaling, pid
+import time                         # for seeding PRNG
 from Bio import SeqIO               # Biopython sequence I/O
 from multiprocessing import Pool
 
@@ -90,9 +91,15 @@ def codonMLE(codon, aa, n_i, N_j, maxLength, num):
     print "Performing MLE for codon " + str(codon) + "(" + str(aa) + ")..."
     thetas_lst = []
     fname_lst = []
+    
+    # compensate for workers receiving jobs at same time
+    s = hash(int(os.getpid()+time.time()+maxLength))
+    np.random.seed(s)
     thetas = [np.random.uniform(0.0, 1.0), \
               np.random.uniform(0.0, 1.0), \
               np.random.uniform(0.0, 1.0)]
+
+    
     result = scipy.optimize.fmin(L, thetas)
     print "Optimization complete. Result:"
     print result 
@@ -141,7 +148,6 @@ def calcBestParams(n_i, N_j, itemList):
         xs = np.array(range(700), dtype=float)
         ys = np.array(map(lambda x: exponentialModel(thetas, x), xs))
         xs_smooth = xs[:692:8]
-#        ys_smooth = np.array([np.sum(ys[i:i+8]) for i in range(0, ys.size-8, 8)])
         ys_smooth = ys[:692:8]
         cprob_ys_smooth = np.array([sum(n_i[i:i+8]) / sum(N_j[i:i+8])  \
                                     for i in range(0, ys.size-8, 8)])
@@ -219,7 +225,7 @@ def MLE():
         for num in range(5): 
             argsList.append([codon, aa, n_i, N_j, maxLength,num])
 
-    p = Pool(8)
+    p = Pool(16)
     resultList = p.map(parallelCodonMLE, argsList)    
     for i,item in enumerate(argsList):
         csvWriter.writerow([item[0], item[1], resultList[i][0][0], resultList[i][0][1], 
