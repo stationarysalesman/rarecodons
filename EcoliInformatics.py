@@ -108,9 +108,10 @@ def codonMLE(codon, aa, n_i, N_j, maxLength, num):
     fname = 'data/{}{}{}.png'.format(codon, aa, num)
     plt.savefig(fname)
     plt.clf()
-    return (thetas, fname) 
+    return (result, fname) 
 
 
+    
 def test():
     codonMap = generateCodonMap()
     sequences = getSequences() 
@@ -120,8 +121,14 @@ def test():
     codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
     n_i = codonCounts['CCG']
     N_j = aaCounts[codonMap['CCG']]
-    codonMLE('CCG', 'V', n_i,N_j,maxLength)
-
+    itemList = [] 
+    for run in range(5):
+        thetas, fname = codonMLE('CCG', 'P', n_i, N_j, maxLength, run)
+        itemList.append((thetas, fname))
+    bestThetas, fname, minKey = calcBestParams(n_i,N_j,itemList)
+    print str(bestThetas)
+    print fname
+    print str(minKey)
 
 def calcBestParams(n_i, N_j, itemList):
     """Use RMSE to determine the parameters that fit best to the 
@@ -134,7 +141,8 @@ def calcBestParams(n_i, N_j, itemList):
         xs = np.array(range(700), dtype=float)
         ys = np.array(map(lambda x: exponentialModel(thetas, x), xs))
         xs_smooth = xs[:692:8]
-        ys_smooth = np.array([sum(ys[i:i+8])/8 for i in range(0, ys.size-8, 8)]) 
+#        ys_smooth = np.array([np.sum(ys[i:i+8]) for i in range(0, ys.size-8, 8)])
+        ys_smooth = ys[:692:8]
         cprob_ys_smooth = np.array([sum(n_i[i:i+8]) / sum(N_j[i:i+8])  \
                                     for i in range(0, ys.size-8, 8)])
         rmse = np.sqrt(np.divide(np.sum(np.square(ys_smooth - cprob_ys_smooth)), ys.size))
@@ -218,5 +226,8 @@ def MLE():
                             resultList[i][0][2], resultList[i][1]])       
 
  
-#MLE() 
-analyze()
+np.random.seed(789345678)
+MLE()
+
+#test() 
+#analyze()
