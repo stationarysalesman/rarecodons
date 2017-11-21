@@ -121,7 +121,65 @@ def test():
     n_i = codonCounts['CCG']
     N_j = aaCounts[codonMap['CCG']]
     codonMLE('CCG', 'V', n_i,N_j,maxLength)
- 
+
+
+def calcBestParams(n_i, N_j, itemList):
+    """Use RMSE to determine the parameters that fit best to the 
+    conditional probability P(codon | amino acid)."""
+
+    scores = dict()
+    for item in itemList: 
+        thetas = item[0]
+        fname = item[1]
+        xs = np.array(range(700), dtype=float)
+        ys = np.array(map(lambda x: exponentialModel(thetas, x), xs))
+        xs_smooth = xs[:692:8]
+        ys_smooth = np.array([sum(ys[i:i+8])/8 for i in range(0, ys.size-8, 8)]) 
+        cprob_ys_smooth = np.array([sum(n_i[i:i+8]) / sum(N_j[i:i+8])  \
+                                    for i in range(0, ys.size-8, 8)])
+        rmse = np.sqrt(np.divide(np.sum(np.square(ys_smooth - cprob_ys_smooth)), ys.size))
+        scores[rmse] = (thetas, fname)
+    minKey = sorted(scores)[0]
+    bestThetas, fname = scores[minKey]
+    return bestThetas, fname, minKey
+     
+
+def analyze():
+    """Analyze data stored in a csv file."""
+    
+    # Get metadata about the sequences
+    codonMap = generateCodonMap()
+    sequences = getSequences() 
+    lengths = map(lambda x: len(x)/3, sequences)
+    maxLength = 700*3
+    numSequences = len(sequences)
+
+    # Find out the codon distribution across the genes
+    codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
+
+    # Get parameters from a csv file
+    fname = 'parameters.csv'
+    f = open(fname, 'rB')
+    csvReader = csv.DictReader(f, delimiter=',')
+    parameterMap = dict() 
+    for row in csvReader:
+        thetas = [row['Theta1'], row['Theta2'], row['Theta3']]
+        thetaFloats = map(lambda x: float(x), thetas)
+        try:
+            parameterMap[row['Codon']].append((thetaFloats, row['filename']))
+        except KeyError:
+            parameterMap[row['Codon']] = [(thetaFloats, row['filename'])] 
+
+    of = open('bestparameters.csv', 'wB')
+    csvWriter = csv.writer(of, delimiter=',')
+    csvWriter.writerow(['Codon', 'Amino Acid', 'Theta1', 'Theta2', 'Theta3', 'RMSE', 'filename'])
+    for codon, itemList in parameterMap.items():
+        n_i = codonCounts[codon]
+        N_j = aaCounts[codonMap[codon]] 
+        bestThetas, fname, rmse = calcBestParams(n_i, N_j, itemList)
+        csvWriter.writerow([codon, codonMap[codon], bestThetas[0], bestThetas[1], bestThetas[2], 
+                            rmse, fname])
+
 def MLE():
     """Estimate the parameters of codon bias in E. coli based 
     on Krumpp et. al. exponential model."""
@@ -160,4 +218,5 @@ def MLE():
                             resultList[i][0][2], resultList[i][1]])       
 
  
-MLE() 
+#MLE() 
+analyze()
