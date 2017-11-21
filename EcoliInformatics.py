@@ -5,6 +5,7 @@ import scipy.optimize               # minimize
 import scipy.stats                  # binomial pmf
 import signal, os                   # signaling
 from Bio import SeqIO               # Biopython sequence I/O
+from multiprocessing import Pool
 
 class TooLongException(Exception):
     """Raise this when things take too long. Impatience is a virtue."""
@@ -70,6 +71,10 @@ def exponentialModel(thetas, k):
     position k. See Krumpp et. al. materials and methods."""
 
     return thetas[0] * np.exp(-k / thetas[1]) + thetas[2] 
+
+
+def parallelCodonMLE(l):
+    return codonMLE(l[0], l[1], l[2], l[3], l[4], l[5])
 
 
 def codonMLE(codon, aa, n_i, N_j, maxLength, num):
@@ -141,12 +146,18 @@ def MLE():
     outfile = open('parameters.csv', 'wB')
     csvWriter = csv.writer(outfile, delimiter=',')
     csvWriter.writerow(fieldnames)
+    argsList = []
     for codon, aa in codonMap.items():
         n_i = codonCounts[codon] 
         N_j = aaCounts[aa]
         for num in range(5): 
-            thetas, fname = codonMLE(codon, aa, n_i, N_j, maxLength,num) 
-            csvWriter.writerow([codon, aa, thetas[0], thetas[1], thetas[2], fname])
+            argsList.append([codon, aa, n_i, N_j, maxLength,num])
 
+    p = Pool(8)
+    resultList = p.map(parallelCodonMLE, argsList)    
+    for i,item in enumerate(argsList):
+        csvWriter.writerow([item[0], item[1], resultList[i][0][0], resultList[i][0][1], 
+                            resultList[i][0][2], resultList[i][1]])       
 
+ 
 MLE() 
