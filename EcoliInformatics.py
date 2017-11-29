@@ -14,8 +14,11 @@ class TooLongException(Exception):
     def __init__(self):
         pass
 
+
+
 def handler(signum, frame):
     raise TooLongException
+
 
 def generateCodonMap():
     """Generate a mapping of codons onto amino acids."""
@@ -43,6 +46,7 @@ def updateCountsInGene(gene, maxLength, codonMap, codonCounts, aaCounts):
         aaCounts[codonMap[cdn]][i/3] += 1
 
     return
+
 
 def counts(sequences, maxLength, codonMap):
     """Count the times a codon occurs in a transcript
@@ -78,6 +82,25 @@ def parallelCodonMLE(l):
     return codonMLE(l[0], l[1], l[2], l[3], l[4], l[5])
 
 
+def generateGraphs(codon, aa, thetas, n_i, N_j, maxLength):
+    """Generate graphs for parameters previously estimated."""
+
+    xs = np.array(range(maxLength), dtype=float)
+    ys = np.array(map(lambda x: exponentialModel(thetas, x), xs))
+    plt.plot(xs[1:700], ys[1:700], color='red')
+    plt.ylabel('P({}|{})'.format(codon, aa))
+    plt.xlabel('Distance from start codon (codons)')
+    plt.ylim((0.0, 1.0)) 
+    plt.xlim((1.0, 700))
+    data_ys = [sum(n_i[i:i+8])/sum(N_j[i:i+8]) for i in range(0, ys.size-8, 8)] 
+    plt.plot(xs[:696:8], data_ys[:87], color='black')
+    fname = 'data/{}{}.png'.format(codon, aa)
+    plt.savefig(fname)
+    plt.clf()
+    return 
+
+
+
 def codonMLE(codon, aa, n_i, N_j, maxLength, num):
     """Estimate model parameters for a single codon distribution."""
    
@@ -99,7 +122,6 @@ def codonMLE(codon, aa, n_i, N_j, maxLength, num):
               np.random.uniform(0.0, 1.0), \
               np.random.uniform(0.0, 1.0)]
 
-    
     result = scipy.optimize.fmin(L, thetas)
     print "Optimization complete. Result:"
     print result 
@@ -109,13 +131,19 @@ def codonMLE(codon, aa, n_i, N_j, maxLength, num):
     plt.ylabel('P({}|{})'.format(codon, aa))
     plt.xlabel('Distance from start codon')
     plt.ylim((0.0, 1.0)) 
-    plt.xlim((0.0, 700))
+    plt.xlim((1.0, 700))
     data_ys = [sum(n_i[i:i+8])/sum(N_j[i:i+8]) for i in range(0, ys.size-8, 8)] 
     plt.plot(xs[:696:8], data_ys[:87], color='black')
     fname = 'data/{}{}{}.png'.format(codon, aa, num)
-    plt.savefig(fname)
-    plt.clf()
-    return (result, fname) 
+    if num == -1:
+        plt.show()
+        plt.clf()
+        valid = raw_input('Valid?')
+        return (result, valid)
+    else:
+        plt.savefig(fname)
+        plt.clf()
+        return (result, fname) 
 
 
     
@@ -137,7 +165,8 @@ def test():
     print fname
     print str(minKey)
 
-def calcBestParams(n_i, N_j, itemList):
+
+def calcBestParams(codon, n_i, N_j, itemList):
     """Use RMSE to determine the parameters that fit best to the 
     conditional probability P(codon | amino acid)."""
 
@@ -155,6 +184,18 @@ def calcBestParams(n_i, N_j, itemList):
         scores[rmse] = (thetas, fname)
     minKey = sorted(scores)[0]
     bestThetas, fname = scores[minKey]
+    # plot
+    xs = np.array(range(700), dtype=float)
+    ys = np.array(map(lambda x: exponentialModel(bestThetas, x), xs))
+    cprob_ys_smooth = np.array([sum(n_i[i:i+8]) / sum(N_j[i:i+8])  \
+                                for i in range(0, ys.size-8, 8)])
+    plt.plot(xs[:692:8], ys[:692:8], color='red')
+    plt.plot(xs[:692:8], cprob_ys_smooth, color='black')
+    plt.title(codon)
+    plt.xlim((0, 700))
+    plt.ylim((0.0, 1.0))
+    plt.show()
+    plt.clf()
     return bestThetas, fname, minKey
      
 
@@ -186,13 +227,41 @@ def analyze():
 
     of = open('bestparameters.csv', 'wB')
     csvWriter = csv.writer(of, delimiter=',')
-    csvWriter.writerow(['Codon', 'Amino Acid', 'Theta1', 'Theta2', 'Theta3', 'RMSE', 'filename'])
+    csvWriter.writerow(['Codon', 'Amino Acid', 'Theta1', 'Theta2', 'Theta3', 'RMSE', 'filename', 'valid'])
     for codon, itemList in parameterMap.items():
         n_i = codonCounts[codon]
         N_j = aaCounts[codonMap[codon]] 
-        bestThetas, fname, rmse = calcBestParams(n_i, N_j, itemList)
+        bestThetas, fname, rmse = calcBestParams(codon, n_i, N_j, itemList)
+        valid = raw_input('Valid fit?')
         csvWriter.writerow([codon, codonMap[codon], bestThetas[0], bestThetas[1], bestThetas[2], 
-                            rmse, fname])
+                            rmse, fname, valid])
+
+
+
+def graphingFun():
+    """Hey lets make some graphs ok"""
+    
+    codonMap = generateCodonMap()
+    sequences = getSequences() 
+    lengths = map(lambda x: len(x)/3, sequences)
+    maxLength = 700*3
+    numSequences = len(sequences)
+    codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
+
+    bp = open('bestparameters.csv', 'rB')
+    csvreader = csv.DictReader(bp, delimiter=',')
+    thetaMap = dict()
+    for row in csvreader:
+        thetaMap[row['Codon']] = [float(row['Theta1']), float(row['Theta2']), float(row['Theta3'])]
+
+    for codon,aa in codonMap.items():
+        if aa == 'STOP': 
+            continue # never thought I'd write code that looks like this
+
+        n_i = codonCounts[codon] 
+        N_j = aaCounts[aa]
+        generateGraphs(codon, aa, thetaMap[codon], n_i, N_j, maxLength)
+
 
 def MLE():
     """Estimate the parameters of codon bias in E. coli based 
@@ -231,9 +300,11 @@ def MLE():
         csvWriter.writerow([item[0], item[1], resultList[i][0][0], resultList[i][0][1], 
                             resultList[i][0][2], resultList[i][1]])       
 
- 
-np.random.seed(789345678)
-MLE()
 
-#test() 
-#analyze()
+if __name__ == '__main__':
+    np.random.seed(936535)
+    #MLE()
+    #test() 
+    #analyze()
+    graphingFun()
+
