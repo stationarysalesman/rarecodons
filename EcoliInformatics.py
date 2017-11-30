@@ -78,6 +78,12 @@ def exponentialModel(thetas, k):
     return thetas[0] * np.exp(-k / thetas[1]) + thetas[2] 
 
 
+def linearModel(thetas, k):
+    """Linear model for codon distribution."""
+    
+    return thetas[0] * k + thetas[1]
+
+
 def parallelCodonMLE(l):
     return codonMLE(l[0], l[1], l[2], l[3], l[4], l[5])
 
@@ -101,13 +107,13 @@ def generateGraphs(codon, aa, thetas, n_i, N_j, maxLength):
 
 
 
-def codonMLE(codon, aa, n_i, N_j, maxLength, num):
+def codonMLE(codon, aa, n_i, N_j, maxLength, model, num):
     """Estimate model parameters for a single codon distribution."""
    
     def L(thetas):
         total = 0.0
         for k in range(maxLength):
-            total += scipy.stats.binom.logpmf(n_i[k], N_j[k], exponentialModel(thetas, k))
+            total += scipy.stats.binom.logpmf(n_i[k], N_j[k], model(thetas, k))
         return -1 * total
 
     # Run 5 times to help avoid getting stuck at local maxima 
@@ -118,15 +124,15 @@ def codonMLE(codon, aa, n_i, N_j, maxLength, num):
     # compensate for workers receiving jobs at same time
     s = hash(int(os.getpid()+time.time()+maxLength))
     np.random.seed(s)
-    thetas = [np.random.uniform(0.0, 1.0), \
-              np.random.uniform(0.0, 1.0), \
-              np.random.uniform(0.0, 1.0)]
-
+    #thetas = [np.random.uniform(0.0, 1.0), \
+    #          np.random.uniform(0.0, 1.0)]
+    thetas = [-0.0001, 0.5]
     result = scipy.optimize.fmin(L, thetas)
     print "Optimization complete. Result:"
     print result 
     xs = np.array(range(maxLength), dtype=float)
-    ys = np.array(map(lambda x: exponentialModel(result, x), xs))
+    ys = np.array(map(lambda x: model(result, x), xs))
+    print ys
     plt.plot(xs[1:700], ys[1:700], color='red')
     plt.ylabel('P({}|{})'.format(codon, aa))
     plt.xlabel('Distance from start codon')
@@ -154,17 +160,12 @@ def test():
     maxLength = 700*3
     numSequences = len(sequences)
     codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
-    n_i = codonCounts['CCG']
-    N_j = aaCounts[codonMap['CCG']]
-    itemList = [] 
-    for run in range(5):
-        thetas, fname = codonMLE('CCG', 'P', n_i, N_j, maxLength, run)
-        itemList.append((thetas, fname))
-    bestThetas, fname, minKey = calcBestParams(n_i,N_j,itemList)
-    print str(bestThetas)
-    print fname
-    print str(minKey)
-
+    n_i = codonCounts['CAU']
+    N_j = aaCounts[codonMap['CAU']]
+    valid = 'n'
+    while valid == 'n':
+        thetas, valid = codonMLE('CAU', 'H', n_i, N_j, maxLength, -1)
+    print thetas
 
 def calcBestParams(codon, n_i, N_j, itemList):
     """Use RMSE to determine the parameters that fit best to the 
@@ -237,6 +238,23 @@ def analyze():
                             rmse, fname, valid])
 
 
+def linearParams():
+    codonMap = generateCodonMap()
+    sequences = getSequences() 
+    lengths = map(lambda x: len(x)/3, sequences)
+    maxLength = 700*3
+    numSequences = len(sequences)
+    codonCounts, aaCounts = counts(sequences, maxLength, codonMap)
+    codons = ['CAU', 'GUU', 'CAC', 'ACG', 'AGU', 'GGU', 'CGG', 'GGG', 'CUC', 'AAA', 'AAG', 'UUG']
+    for codon in codons:
+        aa = codonMap[codon]
+        n_i = codonCounts[codon]
+        N_j = aaCounts[aa]
+        valid = 'n'
+        while valid == 'n':
+            thetas, valid = codonMLE(codon, aa, n_i, N_j, maxLength, linearModel, -1)
+        print thetas
+
 
 def graphingFun():
     """Hey lets make some graphs ok"""
@@ -302,9 +320,9 @@ def MLE():
 
 
 if __name__ == '__main__':
-    np.random.seed(936535)
+    np.random.seed(932635)
     #MLE()
-    #test() 
+    linearParams() 
     #analyze()
-    graphingFun()
+    #graphingFun()
 
