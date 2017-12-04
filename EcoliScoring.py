@@ -58,12 +58,12 @@ def rarityIndex(seq, codonMap):
             once = False 
             while j < scoreVector.size and j - k < thresh:
                 if scoreVector[j] != 0:
-                    clusterScore += 1 
+                    clusterScore += scoreVector[j] * 100
                     once = True
                     k = j
                 j += 1
             if once:
-                clusterScore += 1 
+                clusterScore += scoreVector[i] * 100
                 score += clusterScore
             i = j
         else:
@@ -96,12 +96,13 @@ def main():
         k = row['SYMBOL'].lower()
         p = row['<P> (1)']
         kp = row['kp (sec-1)']
-        noiseMap[k[1:-1]] = [p, kp]
+        b = row['burst rate'] 
+        noiseMap[k[1:-1]] = [p, kp, b]
         
 
     with open('ecoli-data.csv', 'wb') as csvfile:
         ecoliwriter = csv.writer(csvfile, delimiter=',')
-        ecoliwriter.writerow(['Gene', 'Total Codons', 'Rarity Index', '<P>', 'kp'])
+        ecoliwriter.writerow(['Gene', 'Total Codons', 'Rarity Index', '<P>', 'burst rate', 'kp'])
         for k,v in writingDict.items():
             totalCodons, score = v
             
@@ -109,11 +110,11 @@ def main():
             l = re.split(' ', k)
             sym = l[1]
             try:
-                p, kp = noiseMap[sym.lower()]
+                p, b, kp = noiseMap[sym.lower()]
             except KeyError:
                 continue
             
-            ecoliwriter.writerow([k, totalCodons, score, p, kp])
+            ecoliwriter.writerow([k, totalCodons, score, p, b, kp])
           
 
 if __name__ == '__main__':
