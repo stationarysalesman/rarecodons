@@ -24,6 +24,32 @@ def generateCodonMap():
     return codonMap
 
 
+
+def naiveIndex(seq, codonMap):
+    """A naive scoring with no clustering."""
+    score = 0.0
+    for i in range(3, len(seq)-3, 3):
+        try:
+            model, thetas = codonMap[seq[i:i+3]]
+        except KeyError:
+            print 'No corresponding model found for codon ' + seq[i:i+3] + '.'
+            continue
+
+        pos = i / 3 # codon position, NOT nucleotide position
+        if model == 'exponential':
+            p = exponentialModel(thetas, pos)
+        elif model == 'linear':
+            p = linearModel(thetas, pos)
+        else:
+            print 'error. bad things.'
+            print codonMap[seq[i:i+3]]
+            return
+
+        if p < .15:
+            score += p
+    return score
+
+
 def rarityIndex(seq, codonMap):
     """Gives a measure of how rare the codons of a gene are."""
     score = 1.0

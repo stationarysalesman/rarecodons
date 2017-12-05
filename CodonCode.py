@@ -82,7 +82,7 @@ for row in noisecsvfile:
     noiseMap[k[1:-1]] = [p, kp]
     
 
-with open('ecoli-data.csv', 'wb') as csvfile:
+with open('ecoli-naive-data.csv', 'wb') as csvfile:
     ecoliwriter = csv.writer(csvfile, delimiter=',')
     ecoliwriter.writerow(['Gene', 'Rare Codons', 'Common Codons', 'Total Codons', 'RC%', 'Score', '<P>', 'kp'])
     for k,v in writingDict.items():
